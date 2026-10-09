@@ -1,0 +1,27 @@
+[project]
+name = "delinquency-agent"
+version = "0.1.0"
+description = "MCP server + Ollama agent for delinquency data analysis"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp[cli]",        # MCP server/client SDK (FastMCP, Inspector)
+    "ollama",          # Ollama Python client (tool calling)
+    "pandas",
+    "openpyxl",        # read .xlsx
+    "python-docx",     # read/write Word documents
+    "pypdf",           # read the data dictionary PDF
+    "python-dotenv",   # load .env
+]
+
+[dependency-groups]
+dev = ["pytest"]   # installed by default with `uv sync` / `uv run`
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
