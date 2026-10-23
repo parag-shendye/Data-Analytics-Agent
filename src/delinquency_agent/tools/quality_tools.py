@@ -20,8 +20,6 @@ def missing_values() -> dict:
         ],
     }
 
-
-
 def range_violations() -> dict:
     """Count of values outside expected ranges: Credit_Score outside 300-850,
     Credit_Utilization or Debt_to_Income_Ratio outside 0-1, Account_Tenure of 0, and similar."""

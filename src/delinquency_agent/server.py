@@ -4,7 +4,8 @@ from mcp.server.mcpserver import MCPServer
 
 from delinquency_agent.config import settings
 from delinquency_agent.data.loader import load_data
-from delinquency_agent.tools import data_tools, dictionary_tools, quality_tools
+from delinquency_agent.tools import builder_tools, data_tools, dictionary_tools, quality_tools
+from delinquency_agent.tools.ai_tools.registry import load_approved_tools
 
 logging.basicConfig(level=logging.INFO)
 
@@ -33,11 +34,18 @@ TOOLS = [
     # relationship with delinquency
     data_tools.rate_by_group,
     data_tools.correlation_with_target,
-    # Word input/output is not a tool: the client handles it (agent/report.py)
+    # writing new tools (the client shows these only in --build mode)
+    builder_tools.pandas_docs,
+    builder_tools.create_tool
 ]
 
 for tool in TOOLS:
     mcp.add_tool(tool)
+
+# Agent-written tools that a human approved. The "ai_" prefix avoids name clashes with
+# the fixed tools and shows where a tool came from. New approvals load on the next start.
+for name, fn in load_approved_tools():
+    mcp.add_tool(fn, name=f"ai_{name}")
 
 
 # A resource is read-only context the client fetches (not something the model calls).

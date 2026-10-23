@@ -3,6 +3,7 @@
 Run:  uv run python -m delinquency_agent.agent.client "Which fields have missing values?"
       uv run python -m delinquency_agent.agent.client "..." --out output/answer.docx
       uv run python -m delinquency_agent.agent.client --docx questions.docx
+      uv run python -m delinquency_agent.agent.client --build "Write a tool that counts missing values per column"
 """
 
 import argparse
@@ -15,11 +16,13 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from ollama import AsyncClient
 
-from delinquency_agent.agent.prompts import SYSTEM_PROMPT
+from delinquency_agent.agent.prompts import BUILDER_PROMPT, SYSTEM_PROMPT
 from delinquency_agent.agent.report import read_questions, write_report
 from delinquency_agent.config import settings
 
-MAX_STEPS = 8  # safety cap on tool-calling rounds per question
+MAX_STEPS = 8         # safety cap on tool-calling rounds per question
+BUILD_MAX_STEPS = 12  # writing a tool may need a few fix-and-resubmit rounds
+BUILDER_TOOLS = {"pandas_docs", "create_tool"}  # only visible in --build mode
 
 
 # ---------------------------------------------------------------- level 1: entry point
@@ -31,11 +34,23 @@ def main() -> None:
 
 async def run(args: argparse.Namespace) -> None:
     async with connect_to_server() as session:
-        tools = await get_ollama_tools(session)
+        all_tools = await get_ollama_tools(session)
         # Permanent context: the dataset overview is read once and sent with every question,
         # so the model knows the columns before it picks a tool.
-        system_prompt = SYSTEM_PROMPT + "\n\n" + await get_dataset_overview(session)
+        overview = await get_dataset_overview(session)
         llm = AsyncClient(host=settings.ollama_host)
+
+        if args.build:
+            # Build mode: the model sees only the builder tools, so it must write a tool
+            # instead of reusing an existing one.
+            tools = [t for t in all_tools if t["function"]["name"] in BUILDER_TOOLS]
+            result = await answer_question(llm, session, tools, BUILDER_PROMPT + "\n\n" + overview,
+                                           args.build, max_steps=BUILD_MAX_STEPS)
+            print(f"\n{result['answer']}\n\nReview with: uv run python -m delinquency_agent.tools.ai_tools.review list")
+            return
+
+        tools = [t for t in all_tools if t["function"]["name"] not in BUILDER_TOOLS]
+        system_prompt = SYSTEM_PROMPT + "\n\n" + overview
 
         # Word input/output is handled here in the client, not by MCP tools:
         # the model only analyses, the application reads questions and writes the report.
@@ -53,7 +68,7 @@ async def run(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------- level 2: the agent loop
 
 async def answer_question(llm: AsyncClient, session: ClientSession, tools: list[dict],
-                          system_prompt: str, question: str) -> dict:
+                          system_prompt: str, question: str, max_steps: int = MAX_STEPS) -> dict:
     """Ask the model, run any tools it requests, feed results back, repeat until it answers.
 
     Returns {question, answer, tool_results}; tool_results keep the raw data so the
@@ -65,7 +80,7 @@ async def answer_question(llm: AsyncClient, session: ClientSession, tools: list[
     ]
     tool_results = []
 
-    for step in range(MAX_STEPS):
+    for step in range(max_steps):
         response = await llm.chat(model=settings.ollama_model, messages=messages, tools=tools)
         messages.append(response.message)
 
@@ -89,9 +104,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("question", nargs="?", help="a single question to answer")
     parser.add_argument("--docx", help="Word document with questions to answer")
     parser.add_argument("--out", help="where to save the Word report (default: output/answers_<time>.docx)")
+    parser.add_argument("--build", metavar="TASK", help="ask the model to write a new tool (saved for review)")
     args = parser.parse_args()
-    if not args.question and not args.docx:
-        parser.error("give a question or --docx PATH")
+    if not (args.question or args.docx or args.build):
+        parser.error("give a question, --docx PATH or --build TASK")
     return args
 
 

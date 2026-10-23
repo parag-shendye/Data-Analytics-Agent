@@ -3,3 +3,4 @@ __pycache__/
 *.egg-info/
 .env
 output/
+src/delinquency_agent/tools/ai_tools/generated
